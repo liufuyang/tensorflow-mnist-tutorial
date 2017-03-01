@@ -20,22 +20,19 @@ import tensorflowvisu
 from tensorflow.contrib.learn.python.learn.datasets.mnist import read_data_sets
 tf.set_random_seed(0)
 
-# neural network with 1 layer of 10 softmax neurons
+# neural network structure for this sample:
 #
-# · · · · · · · · · ·       (input data, flattened pixels)       X [batch, 784]        # 784 = 28 * 28
-# \x/x\x/x\x/x\x/x\x/    -- fully connected layer (softmax)      W [784, 10]     b[10]
-#   · · · · · · · ·                                              Y [batch, 10]
-
-# The model is:
-#
-# Y = softmax( X * W + b)
-#              X: matrix for 100 grayscale images of 28x28 pixels, flattened (there are 100 images in a mini-batch)
-#              W: weight matrix with 784 lines and 10 columns
-#              b: bias vector with 10 dimensions
-#              +: add with broadcasting: adds the vector to each line of the matrix (numpy)
-#              softmax(matrix) applies softmax on each line
-#              softmax(line) applies an exp to each value then divides by the norm of the resulting line
-#              Y: output matrix with 100 lines and 10 columns
+# · · · · · · · · · ·      (input data, 1-deep)                 X [batch, 28, 28, 1]
+# @ @ @ @ @ @ @ @ @ @   -- conv. layer 6x6x1=>6 stride 1        W1 [5, 5, 1, 6]        B1 [6]
+# ∶∶∶∶∶∶∶∶∶∶∶∶∶∶∶∶∶∶∶                                           Y1 [batch, 28, 28, 6]
+#   @ @ @ @ @ @ @ @     -- conv. layer 5x5x6=>12 stride 2       W2 [5, 5, 6, 12]        B2 [12]
+#   ∶∶∶∶∶∶∶∶∶∶∶∶∶∶∶                                             Y2 [batch, 14, 14, 12]
+#     @ @ @ @ @ @       -- conv. layer 4x4x12=>24 stride 2      W3 [4, 4, 12, 24]       B3 [24]
+#     ∶∶∶∶∶∶∶∶∶∶∶                                               Y3 [batch, 7, 7, 24] => reshaped to YY [batch, 7*7*24]
+#      \x/x\x\x/ ✞      -- fully connected layer (relu+dropout) W4 [7*7*24, 200]       B4 [200]
+#       · · · ·                                                 Y4 [batch, 200]
+#       \x/x\x/         -- fully connected layer (softmax)      W5 [200, 10]           B5 [10]
+#        · · ·                                                  Y [batch, 20]
 
 # Download images and labels into mnist.test (10K images+labels) and mnist.train (60K images+labels)
 mnist = read_data_sets("data", one_hot=True, reshape=False, validation_size=0)
@@ -55,29 +52,54 @@ lr = tf.placeholder(tf.float32)
 # for dropout - feed in 1 when testing, 0.75 when training
 pkeep = tf.placeholder(tf.float32)
 
+Chn_1_depth = 6
+Chn_2_depth = 12
+Chn_3_depth = 24
+Chn_4_depth = 200
+
 ## Extra layer:
-W1 = tf.Variable(tf.truncated_normal([28*28, 200] ,stddev=0.1))
-B1 = tf.Variable(tf.ones([200])/10.0)
+W1 = tf.Variable(tf.truncated_normal([6, 6, 1, Chn_1_depth] ,stddev=0.1))
+B1 = tf.Variable(tf.constant(0.1, tf.float32, [Chn_1_depth]))
+# 28 x 28 x 4
+W2 = tf.Variable(tf.truncated_normal([5, 5, Chn_1_depth, Chn_2_depth ], stddev=0.1))
+B2 = tf.Variable(tf.constant(0.1, tf.float32, [Chn_2_depth]))
+# 14 x 14 x 8
+W3 = tf.Variable(tf.truncated_normal([4, 4, Chn_2_depth, Chn_3_depth], stddev=0.1))
+B3 = tf.Variable(tf.constant(0.1, tf.float32, [Chn_3_depth]))
+# 7 x 7 x 12
+W4 = tf.Variable(tf.truncated_normal([7*7*Chn_3_depth, Chn_4_depth], stddev=0.1))
+B4 = tf.Variable(tf.constant(0.1, tf.float32, [Chn_4_depth]))
 
-W2 = tf.Variable(tf.truncated_normal([200, 100], stddev=0.1))
-B2 = tf.Variable(tf.ones([100])/10.0)
-
-W3 = tf.Variable(tf.truncated_normal([100, 10], stddev=0.1))
-B3 = tf.Variable(tf.zeros([10]))
+W_end = tf.Variable(tf.truncated_normal([Chn_4_depth, 10], stddev=0.1))
+B_end = tf.Variable(tf.zeros([10]))
 
 # flatten the images into a single line of pixels
 # -1 in the shape definition means "the only possible dimension that will preserve the number of elements"
-XX = tf.reshape(X, [-1, 784])
+# XX = tf.reshape(X, [-1, 784])
 
 # The model
 # Y = tf.nn.softmax(tf.matmul(XX, W) + b)
-Y1 = tf.nn.relu(tf.matmul(XX, W1) + B1) # used to be sigmoid
-Y1_droppedout = tf.nn.dropout(Y1, pkeep)
+stride = 1  # output is still 28x28
+Ycnv1 = tf.nn.conv2d(X, W1, strides=[1, stride, stride, 1], padding='SAME')
+Y1 = tf.nn.relu(Ycnv1 + B1)
+#Y1_droppedout = tf.nn.dropout(Y1, pkeep)
 
-Y2 = tf.nn.relu(tf.matmul(Y1_droppedout, W2) + B2)
-Y2_droppedout = tf.nn.dropout(Y2, pkeep)
-#Y = tf.nn.softmax(tf.matmul(Y2, W3) + B3)
-Ylogits = tf.matmul(Y2_droppedout, W3) + B3
+stride = 2  # output is 14x14
+Ycnv2 = tf.nn.conv2d(Y1, W2, strides=[1, stride, stride, 1], padding='SAME')
+Y2 = tf.nn.relu(Ycnv2 + B2)
+#Y2_droppedout = tf.nn.dropout(Y2, pkeep)
+
+stride = 2  # output is 7x7
+Ycnv3 = tf.nn.conv2d(Y2, W3, strides=[1, stride, stride, 1], padding='SAME')
+Y3 = tf.nn.relu(Ycnv3 + B3)
+#Y3_droppedout = tf.nn.dropout(Y3, pkeep)
+
+# reshape the output from the third convolution for the fully connected layer
+YY = tf.reshape(Y3, shape=[-1, 7 * 7 * Chn_3_depth])
+Y4 = tf.nn.relu(tf.matmul(YY, W4) + B4)
+Y4_droppedout = tf.nn.dropout(Y4, pkeep)
+
+Ylogits = tf.matmul(Y4_droppedout, W_end) + B_end
 Y = tf.nn.softmax(Ylogits)
 
 # loss function: cross-entropy = - sum( Y_i * log(Yi) )
@@ -102,8 +124,8 @@ accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 train_step = tf.train.AdamOptimizer(lr).minimize(cross_entropy) # used to be GradientDescentOptimizer
 
 # matplotlib visualisation
-allweights = tf.reshape(W3, [-1])
-allbiases = tf.reshape(B3, [-1])
+allweights = tf.reshape(W_end, [-1])
+allbiases = tf.reshape(B_end, [-1])
 I = tensorflowvisu.tf_format_mnist_images(X, Y, Y_)  # assembles 10x10 images by default
 It = tensorflowvisu.tf_format_mnist_images(X, Y, Y_, 1000, lines=25)  # 1000 images on 25 lines
 datavis = tensorflowvisu.MnistDataVis()
