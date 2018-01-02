@@ -113,7 +113,7 @@ Y = tf.nn.softmax(Ylogits)
 # cross_entropy = -tf.reduce_mean(Y_ * tf.log(Y)) * 1000.0  # normalized for batches of 100 images,
                                                           # *10 because  "mean" included an unwanted division by 10
 # So to avoid doing log(0)
-cross_entropy = tf.nn.softmax_cross_entropy_with_logits(Ylogits, Y_)
+cross_entropy = tf.nn.softmax_cross_entropy_with_logits(logits=Ylogits, labels=Y_)
 cross_entropy = tf.reduce_mean(cross_entropy)*100
 
 # accuracy of the trained model, between 0 (worst) and 1 (best)
@@ -175,4 +175,4 @@ datavis.animate(training_step, iterations=10000+1, train_data_update_freq=10, te
 
 print("max test accuracy: " + str(datavis.get_max_test_accuracy()))
 
-# final max test accuracy = 0.9268 (10K iterations). Accuracy should peak above 0.92 in the first 2000 iterations.
+# final max test acc: 10001: ********* epoch 17 ********* test accuracy:0.9921
